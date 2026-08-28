@@ -5,9 +5,9 @@ const VIEW_STORAGE_KEY = "cashflow.active-view.v1";
 
 const DEFAULT_CATEGORIES = [
   { id: "cat-salary", name: "Nhận lương", type: "income" },
-  { id: "cat-haircut", name: "Cắt tóc", type: "expense" },
   { id: "cat-shopping", name: "Mua đồ dùng", type: "expense" },
   { id: "cat-fuel", name: "Xăng xe", type: "expense" },
+  { id: "other", name: "Khác", type: "expense" }
 ];
 
 const CHART_COLORS = [
