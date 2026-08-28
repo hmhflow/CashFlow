@@ -1,6 +1,7 @@
 const TRANSACTION_STORAGE_KEY = "cashflow.transactions.v1";
 const CATEGORY_STORAGE_KEY = "cashflow.categories.v1";
 const PANEL_STORAGE_KEY = "cashflow.panels.v1";
+const VIEW_STORAGE_KEY = "cashflow.active-view.v1";
 
 const DEFAULT_CATEGORIES = [
   { id: "cat-salary", name: "Nhận lương", type: "income" },
@@ -38,6 +39,8 @@ const amountInput = document.getElementById("amount");
 const dateInput = document.getElementById("date");
 const noteInput = document.getElementById("note");
 const submitTransactionButton = document.getElementById("submit-transaction");
+const cancelEditTransactionButton = document.getElementById("cancel-edit-transaction");
+const editingTransactionHintElement = document.getElementById("editing-transaction-hint");
 const categoryTypeHintElement = document.getElementById("category-type-hint");
 
 const categoryForm = document.getElementById("category-form");
@@ -57,8 +60,12 @@ const keywordFilterInput = document.getElementById("keyword-filter");
 const monthFilterWrap = document.getElementById("month-filter-wrap");
 const fromDateWrap = document.getElementById("from-date-wrap");
 const toDateWrap = document.getElementById("to-date-wrap");
+const advancedFilterPanelElement = document.getElementById("advanced-filter-panel");
+const toggleAdvancedFilterButton = document.getElementById("toggle-advanced-filter");
 const resetFilterButton = document.getElementById("reset-filter");
 const activeRangeLabelElement = document.getElementById("active-range-label");
+const pageMenuButtons = Array.from(document.querySelectorAll("button[data-view-target]"));
+const viewSections = Array.from(document.querySelectorAll(".app-view[data-view]"));
 
 const exportJsonButton = document.getElementById("export-json");
 const exportCsvButton = document.getElementById("export-csv");
@@ -78,19 +85,27 @@ let cashflowChart;
 let transactions = loadTransactions();
 let categories = loadCategories(transactions);
 let filterState = createInitialFilterState();
+let activeView = loadActiveView();
+let advancedFilterOpen = false;
+let editingTransactionId = null;
 
 initializeCollapsiblePanels();
+initializeViewNavigation();
 saveTransactions(transactions);
 saveCategories(categories);
 ensureDefaultTransactionDate();
+formatAmountInputValue();
 syncFilterControls();
+applyAdvancedFilterVisibility();
 bindEvents();
 render();
 
 function bindEvents() {
   transactionForm.addEventListener("submit", handleAddTransaction);
+  amountInput.addEventListener("input", handleAmountInputInput);
   clearAllButton.addEventListener("click", handleClearAllTransactions);
-  transactionListElement.addEventListener("click", handleDeleteTransaction);
+  transactionListElement.addEventListener("click", handleTransactionListClick);
+  cancelEditTransactionButton.addEventListener("click", handleCancelEditTransaction);
 
   categoryInput.addEventListener("change", updateSelectedCategoryHint);
   categoryForm.addEventListener("submit", handleAddCategory);
@@ -106,6 +121,7 @@ function bindEvents() {
   minAmountInput.addEventListener("input", handleAdvancedFilterChange);
   maxAmountInput.addEventListener("input", handleAdvancedFilterChange);
   keywordFilterInput.addEventListener("input", handleAdvancedFilterChange);
+  toggleAdvancedFilterButton.addEventListener("click", handleToggleAdvancedFilter);
 
   resetFilterButton.addEventListener("click", handleResetFilter);
 
@@ -113,6 +129,10 @@ function bindEvents() {
   exportCsvButton.addEventListener("click", handleExportCsv);
   importTriggerButton.addEventListener("click", handleOpenImportDialog);
   importFileInput.addEventListener("change", handleImportFile);
+
+  for (const button of pageMenuButtons) {
+    button.addEventListener("click", handleSwitchView);
+  }
 }
 
 function initializeCollapsiblePanels() {
@@ -160,6 +180,64 @@ function loadPanelState() {
   }
 }
 
+function initializeViewNavigation() {
+  if (!isValidView(activeView)) {
+    activeView = "overview";
+  }
+
+  applyActiveView();
+  saveActiveView(activeView);
+}
+
+function handleSwitchView(event) {
+  const target = event.currentTarget;
+  if (!target || !target.dataset) {
+    return;
+  }
+
+  const nextView = target.dataset.viewTarget;
+  if (!isValidView(nextView) || nextView === activeView) {
+    return;
+  }
+
+  activeView = nextView;
+  applyActiveView();
+  saveActiveView(activeView);
+  render();
+}
+
+function applyActiveView() {
+  for (const section of viewSections) {
+    const sectionView = section.dataset.view;
+    section.classList.toggle("hidden", sectionView !== activeView);
+  }
+
+  for (const button of pageMenuButtons) {
+    const buttonView = button.dataset.viewTarget;
+    button.classList.toggle("is-active", buttonView === activeView);
+  }
+}
+
+function loadActiveView() {
+  const savedView = localStorage.getItem(VIEW_STORAGE_KEY);
+  if (isValidView(savedView)) {
+    return savedView;
+  }
+  return "overview";
+}
+
+function saveActiveView(view) {
+  try {
+    localStorage.setItem(VIEW_STORAGE_KEY, view);
+  } catch (error) {
+    console.error("Không thể lưu trạng thái trang hiện tại.", error);
+  }
+}
+
+function isValidView(view) {
+  return view === "overview" || view === "manage" || view === "backup";
+}
+
 function handleAddTransaction(event) {
   event.preventDefault();
 
@@ -176,39 +254,81 @@ function handleAddTransaction(event) {
 
   const date = normalizeDateValue(dateInput.value);
   const note = noteInput.value.trim();
-  const rawAmount = Number(amountInput.value);
-  const amount = Number.isFinite(rawAmount) ? Math.round(rawAmount) : NaN;
+  const amount = parseCurrencyInput(amountInput.value);
 
   if (!Number.isFinite(amount) || amount <= 0) {
     alert("Số tiền phải lớn hơn 0.");
     return;
   }
 
-  const transaction = {
-    id: createId(),
+  const transactionPayload = {
     categoryId: selectedCategory.id,
     categoryName: selectedCategory.name,
     type: selectedCategory.type,
     amount,
     date,
     note,
-    createdAt: Date.now(),
   };
 
-  transactions = [transaction, ...transactions];
+  if (editingTransactionId) {
+    const editingIndex = transactions.findIndex((item) => item.id === editingTransactionId);
+    if (editingIndex < 0) {
+      alert("Không tìm thấy giao dịch cần chỉnh sửa. Vui lòng thao tác lại.");
+      clearEditingTransactionState();
+      return;
+    }
+
+    const currentTransaction = transactions[editingIndex];
+    const updatedTransaction = {
+      ...currentTransaction,
+      ...transactionPayload,
+      id: currentTransaction.id,
+      createdAt: currentTransaction.createdAt,
+    };
+
+    const nextTransactions = [...transactions];
+    nextTransactions[editingIndex] = updatedTransaction;
+    transactions = nextTransactions;
+  } else {
+    const transaction = {
+      id: createId(),
+      ...transactionPayload,
+      createdAt: Date.now(),
+    };
+    transactions = [transaction, ...transactions];
+  }
+
+  clearEditingTransactionState();
   saveTransactions(transactions);
   render();
 
   const selectedCategoryId = selectedCategory.id;
   transactionForm.reset();
   ensureDefaultTransactionDate();
+  formatAmountInputValue();
   if (categories.some((item) => item.id === selectedCategoryId)) {
     categoryInput.value = selectedCategoryId;
   }
   updateSelectedCategoryHint();
 }
 
-function handleDeleteTransaction(event) {
+function handleAmountInputInput() {
+  const digits = extractDigits(amountInput.value);
+  if (!digits) {
+    amountInput.value = "";
+    return;
+  }
+
+  amountInput.value = formatThousandsFromDigits(digits);
+}
+
+function handleTransactionListClick(event) {
+  const editButton = event.target.closest("button[data-edit-id]");
+  if (editButton) {
+    startEditingTransaction(editButton.dataset.editId);
+    return;
+  }
+
   const removeButton = event.target.closest("button[data-delete-id]");
   if (!removeButton) {
     return;
@@ -221,8 +341,98 @@ function handleDeleteTransaction(event) {
   }
 
   transactions = nextTransactions;
+  if (editingTransactionId === id) {
+    clearEditingTransactionState();
+  }
   saveTransactions(transactions);
   render();
+}
+
+function handleCancelEditTransaction() {
+  if (!editingTransactionId) {
+    return;
+  }
+
+  clearEditingTransactionState();
+  transactionForm.reset();
+  ensureDefaultTransactionDate();
+  formatAmountInputValue();
+  if (categories.length > 0) {
+    categoryInput.value = categories[0].id;
+    updateSelectedCategoryHint();
+  }
+}
+
+function startEditingTransaction(transactionId) {
+  const transaction = transactions.find((item) => item.id === transactionId);
+  if (!transaction) {
+    alert("Không tìm thấy giao dịch để chỉnh sửa.");
+    return;
+  }
+
+  editingTransactionId = transaction.id;
+
+  if (activeView !== "manage") {
+    activeView = "manage";
+    applyActiveView();
+    saveActiveView(activeView);
+  }
+
+  if (transactionPanelElement) {
+    transactionPanelElement.open = true;
+  }
+
+  const categoryExists = categories.some((item) => item.id === transaction.categoryId);
+  if (categoryExists) {
+    categoryInput.value = transaction.categoryId;
+  } else if (categories.length > 0) {
+    categoryInput.value = categories[0].id;
+  }
+
+  amountInput.value = formatThousandsFromDigits(String(transaction.amount));
+  dateInput.value = normalizeDateValue(transaction.date);
+  noteInput.value = transaction.note || "";
+
+  applyEditingTransactionStateUI();
+  updateSelectedCategoryHint();
+  activeRangeLabelElement.textContent = describeHeaderPillText(activeView, filterState);
+  amountInput.focus();
+}
+
+function clearEditingTransactionState() {
+  if (!editingTransactionId) {
+    applyEditingTransactionStateUI();
+    return;
+  }
+
+  editingTransactionId = null;
+  applyEditingTransactionStateUI();
+}
+
+function applyEditingTransactionStateUI() {
+  const isEditing = Boolean(editingTransactionId);
+  submitTransactionButton.textContent = isEditing ? "Cập nhật giao dịch" : "Lưu giao dịch";
+  cancelEditTransactionButton.classList.toggle("hidden", !isEditing);
+
+  if (!isEditing) {
+    editingTransactionHintElement.classList.add("hidden");
+    editingTransactionHintElement.textContent = "";
+    return;
+  }
+
+  const transaction = transactions.find((item) => item.id === editingTransactionId);
+  if (!transaction) {
+    editingTransactionId = null;
+    editingTransactionHintElement.classList.add("hidden");
+    editingTransactionHintElement.textContent = "";
+    submitTransactionButton.textContent = "Lưu giao dịch";
+    cancelEditTransactionButton.classList.add("hidden");
+    return;
+  }
+
+  editingTransactionHintElement.textContent =
+    `Đang chỉnh sửa: ${formatDate(transaction.date)} • ${transaction.categoryName} • ${currencyFormatter.format(transaction.amount)}`;
+  editingTransactionHintElement.classList.remove("hidden");
 }
 
 function handleClearAllTransactions() {
@@ -236,6 +446,7 @@ function handleClearAllTransactions() {
   }
 
   transactions = [];
+  clearEditingTransactionState();
   saveTransactions(transactions);
   render();
 }
@@ -303,6 +514,12 @@ function handleDeleteCategory(event) {
 
 function handleFilterModeChange() {
   filterState.mode = filterModeInput.value;
+
+  if ((filterState.mode === "month" || filterState.mode === "custom") && !advancedFilterOpen) {
+    advancedFilterOpen = true;
+    applyAdvancedFilterVisibility();
+  }
+
   toggleFilterFieldsByMode();
   render();
 }
@@ -325,8 +542,15 @@ function handleAdvancedFilterChange() {
 
 function handleResetFilter() {
   filterState = createInitialFilterState();
+  advancedFilterOpen = false;
   syncFilterControls();
+  applyAdvancedFilterVisibility();
   render();
+}
+
+function handleToggleAdvancedFilter() {
+  advancedFilterOpen = !advancedFilterOpen;
+  applyAdvancedFilterVisibility();
 }
 
 function handleExportJson() {
@@ -342,7 +566,7 @@ function handleExportJson() {
 }
 
 function handleExportCsv() {
-  const csvData = serializeTransactionsToCsv(transactions);
+  const csvData = serializeBackupToCsv(categories, transactions);
   const fileName = `cashflow-backup-${formatFileTimestamp(new Date())}.csv`;
   downloadTextFile(fileName, csvData, "text/csv;charset=utf-8");
 }
@@ -361,8 +585,8 @@ async function handleImportFile(event) {
     const text = await file.text();
     const importedData = parseImportedFile(file.name, text);
 
-    if (importedData.transactions.length === 0) {
-      alert("File không có giao dịch hợp lệ để nhập.");
+    if (importedData.transactions.length === 0 && importedData.categories.length === 0) {
+      alert("File không có dữ liệu hợp lệ để nhập.");
       return;
     }
 
@@ -376,6 +600,7 @@ async function handleImportFile(event) {
     transactions = importedData.transactions;
     categories = importedData.categories;
     filterState = createInitialFilterState();
+    clearEditingTransactionState();
 
     saveTransactions(transactions);
     saveCategories(categories);
@@ -394,21 +619,28 @@ function render() {
   renderCategorySelect();
   renderCategoryList();
   renderCategoryFilterOptions();
+  applyEditingTransactionStateUI();
   updateSelectedCategoryHint();
 
   const filteredTransactions = applyFilters(transactions, filterState);
   const summary = summarizeTransactions(filteredTransactions);
 
-  activeRangeLabelElement.textContent = `Đang xem: ${describeActiveFilters(filterState)}`;
+  activeRangeLabelElement.textContent = describeHeaderPillText(activeView, filterState);
   renderSummary(summary);
   renderTransactions(filteredTransactions);
-  renderCharts(summary);
+
+  if (activeView === "overview") {
+    renderCharts(summary);
+  } else {
+    destroyCharts();
+  }
 }
 
 function renderCategorySelect() {
   const previousValue = categoryInput.value;
 
   if (categories.length === 0) {
+    clearEditingTransactionState();
     categoryInput.innerHTML = "<option value=''>Chưa có danh mục</option>";
     categoryInput.value = "";
     toggleTransactionFormDisabled(true);
@@ -517,7 +749,12 @@ function renderTransactions(items) {
           <td><span class="type-pill ${typeClass}">${typeLabel}</span></td>
           <td>${escapeHtml(item.note || "-")}</td>
           <td class="${amountClass}">${amountLabel}</td>
-          <td><button class="icon-btn" type="button" data-delete-id="${escapeHtml(item.id)}">Xóa</button></td>
+          <td>
+            <div class="table-actions">
+              <button class="icon-btn edit-btn" type="button" data-edit-id="${escapeHtml(item.id)}">Sửa</button>
+              <button class="icon-btn" type="button" data-delete-id="${escapeHtml(item.id)}">Xóa</button>
+            </div>
+          </td>
         </tr>
       `;
     })
@@ -535,12 +772,14 @@ function renderCharts(summary) {
   const expenseColors = hasExpenseData
     ? expenseLabels.map((name, index) => getCategoryColor(name, index))
     : ["#cbd5e1"];
+  const expenseChartCanvas = document.getElementById("expense-category-chart");
+  const cashflowCanvas = document.getElementById("cashflow-chart");
 
   if (expenseCategoryChart) {
     expenseCategoryChart.destroy();
   }
 
-  expenseCategoryChart = new Chart(document.getElementById("expense-category-chart"), {
+  expenseCategoryChart = new Chart(expenseChartCanvas, {
     type: "doughnut",
     data: {
       labels: expenseLabels,
@@ -548,17 +787,45 @@ function renderCharts(summary) {
         {
           data: expenseValues,
           backgroundColor: expenseColors,
-          borderWidth: 1,
+          borderColor: "#ffffff",
+          borderWidth: 2,
+          spacing: 2,
+          hoverOffset: 8,
         },
       ],
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
+      cutout: "64%",
+      layout: {
+        padding: 6,
+      },
+      animation: {
+        duration: 700,
+        easing: "easeOutQuart",
+      },
       plugins: {
         legend: {
           position: "bottom",
+          labels: {
+            color: "#24486b",
+            usePointStyle: true,
+            pointStyle: "circle",
+            boxWidth: 8,
+            padding: 14,
+            font: {
+              size: 12,
+              weight: "600",
+            },
+          },
         },
         tooltip: {
+          backgroundColor: "#0f4c81",
+          titleColor: "#f0f9ff",
+          bodyColor: "#f0f9ff",
+          cornerRadius: 10,
+          padding: 10,
           callbacks: {
             label(context) {
               if (!hasExpenseData) {
@@ -578,7 +845,10 @@ function renderCharts(summary) {
     cashflowChart.destroy();
   }
 
-  cashflowChart = new Chart(document.getElementById("cashflow-chart"), {
+  const incomeBarGradient = createVerticalGradient(cashflowCanvas, "#36b6ff", "#0b6ed0");
+  const expenseBarGradient = createVerticalGradient(cashflowCanvas, "#ff8aa0", "#e24f6a");
+
+  cashflowChart = new Chart(cashflowCanvas, {
     type: "bar",
     data: {
       labels: ["Thu nhập", "Chi tiêu"],
@@ -586,20 +856,56 @@ function renderCharts(summary) {
         {
           label: "Tổng tiền",
           data: [summary.totalIncome, summary.totalExpense],
-          backgroundColor: ["#10b981", "#ef4444"],
-          borderRadius: 8,
-          maxBarThickness: 72,
+          backgroundColor: [incomeBarGradient, expenseBarGradient],
+          borderRadius: 12,
+          borderSkipped: false,
+          maxBarThickness: 66,
+          categoryPercentage: 0.58,
+          barPercentage: 0.88,
         },
       ],
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
+      layout: {
+        padding: {
+          top: 8,
+          left: 6,
+          right: 6,
+          bottom: 2,
+        },
+      },
+      animation: {
+        duration: 760,
+        easing: "easeOutQuart",
+      },
       scales: {
+        x: {
+          grid: {
+            display: false,
+            drawBorder: false,
+          },
+          ticks: {
+            color: "#245681",
+            font: {
+              size: 12,
+              weight: "700",
+            },
+          },
+        },
         y: {
           beginAtZero: true,
+          grace: "10%",
+          grid: {
+            color: "rgba(12, 74, 138, 0.14)",
+            drawBorder: false,
+          },
           ticks: {
+            color: "#2f5f8c",
+            maxTicksLimit: 5,
             callback(value) {
-              return currencyFormatter.format(Number(value));
+              return formatAxisCurrency(Number(value));
             },
           },
         },
@@ -609,6 +915,11 @@ function renderCharts(summary) {
           display: false,
         },
         tooltip: {
+          backgroundColor: "#0f4c81",
+          titleColor: "#f0f9ff",
+          bodyColor: "#f0f9ff",
+          cornerRadius: 10,
+          padding: 10,
           callbacks: {
             label(context) {
               return currencyFormatter.format(context.parsed.y || 0);
@@ -618,6 +929,30 @@ function renderCharts(summary) {
       },
     },
   });
+}
+
+function destroyCharts() {
+  if (expenseCategoryChart) {
+    expenseCategoryChart.destroy();
+    expenseCategoryChart = null;
+  }
+
+  if (cashflowChart) {
+    cashflowChart.destroy();
+    cashflowChart = null;
+  }
+}
+
+function createVerticalGradient(canvas, startColor, endColor) {
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return startColor;
+  }
+
+  const gradient = context.createLinearGradient(0, 0, 0, canvas.height || 300);
+  gradient.addColorStop(0, startColor);
+  gradient.addColorStop(1, endColor);
+  return gradient;
 }
 
 function applyFilters(items, filters) {
@@ -791,6 +1126,28 @@ function describeActiveFilters(filters) {
   return `${parts[0]} | ${parts.slice(1).join(" • ")}`;
 }
 
+function describeHeaderPillText(view, filters) {
+  if (view === "manage") {
+    return "Trang giao dịch & danh mục";
+  }
+
+  if (view === "backup") {
+    return "Trang sao lưu & khôi phục";
+  }
+
+  return `Trang tổng quan | ${describeActiveFilters(filters)}`;
+}
+
+function applyAdvancedFilterVisibility() {
+  if (!advancedFilterPanelElement || !toggleAdvancedFilterButton) {
+    return;
+  }
+
+  advancedFilterPanelElement.classList.toggle("hidden", !advancedFilterOpen);
+  toggleAdvancedFilterButton.setAttribute("aria-expanded", advancedFilterOpen ? "true" : "false");
+  toggleAdvancedFilterButton.textContent = advancedFilterOpen ? "Thu gọn lọc nâng cao" : "Mở lọc nâng cao";
+}
+
 function describeFilterRange(filters) {
   if (filters.mode === "all") {
     return "Toàn bộ thời gian";
@@ -921,6 +1278,30 @@ function ensureDefaultTransactionDate() {
   }
 }
 
+function formatAmountInputValue() {
+  const digits = extractDigits(amountInput.value);
+  amountInput.value = digits ? formatThousandsFromDigits(digits) : "";
+}
+
+function parseCurrencyInput(value) {
+  const digits = extractDigits(value);
+  if (!digits) {
+    return NaN;
+  }
+
+  const amount = Number(digits);
+  return Number.isFinite(amount) ? amount : NaN;
+}
+
+function extractDigits(value) {
+  return String(value || "").replace(/\D/g, "");
+}
+
+function formatThousandsFromDigits(digits) {
+  const normalized = digits.replace(/^0+(?=\d)/, "");
+  return normalized.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+}
+
 function parseImportedFile(fileName, content) {
   const lowerName = fileName.toLowerCase();
   const trimmedContent = content.trim();
@@ -964,7 +1345,7 @@ function parseJsonImport(content) {
 function parseCsvImport(content) {
   const rows = parseCsvRows(content);
   if (rows.length < 2) {
-    throw new Error("CSV không có dữ liệu giao dịch.");
+    throw new Error("CSV không có dữ liệu.");
   }
 
   const headers = rows[0];
@@ -977,6 +1358,69 @@ function parseCsvImport(content) {
     }
   });
 
+  if (headerMap.recordType !== undefined) {
+    return parseStructuredCsvImport(rows, headerMap);
+  }
+
+  return parseLegacyTransactionCsvImport(rows, headerMap);
+}
+
+function parseStructuredCsvImport(rows, headerMap) {
+  const importedCategoryCandidates = [];
+  const importedTransactions = [];
+
+  for (let i = 1; i < rows.length; i += 1) {
+    const row = rows[i];
+    const recordType = normalizeCsvRecordType(getCsvCell(row, headerMap.recordType));
+
+    if (recordType === "category") {
+      const categoryName = getCsvCell(row, headerMap.name) || getCsvCell(row, headerMap.categoryName);
+      const category = normalizeCategory({
+        id: getCsvCell(row, headerMap.id),
+        name: categoryName,
+        type: getCsvCell(row, headerMap.type),
+      });
+
+      if (category) {
+        importedCategoryCandidates.push(category);
+      }
+      continue;
+    }
+
+    if (recordType !== "transaction" && recordType !== "") {
+      continue;
+    }
+
+    const rawCategoryName = getCsvCell(row, headerMap.categoryName) || getCsvCell(row, headerMap.name);
+    if (!normalizeCategoryName(rawCategoryName)) {
+      continue;
+    }
+
+    const transaction = normalizeTransaction({
+      id: getCsvCell(row, headerMap.id),
+      categoryId: getCsvCell(row, headerMap.categoryId),
+      categoryName: rawCategoryName,
+      type: getCsvCell(row, headerMap.type),
+      amount: getCsvCell(row, headerMap.amount),
+      date: getCsvCell(row, headerMap.date),
+      note: getCsvCell(row, headerMap.note),
+      createdAt: getCsvCell(row, headerMap.createdAt),
+    });
+
+    if (isValidTransaction(transaction)) {
+      importedTransactions.push(transaction);
+    }
+  }
+
+  if (importedCategoryCandidates.length === 0 && importedTransactions.length === 0) {
+    throw new Error("CSV không chứa dữ liệu hợp lệ.");
+  }
+
+  const importedCategories = buildCategoriesWithTransactions(importedCategoryCandidates, importedTransactions);
+  return { categories: importedCategories, transactions: importedTransactions };
+}
+
+function parseLegacyTransactionCsvImport(rows, headerMap) {
   const hasDate = headerMap.date !== undefined;
   const hasAmount = headerMap.amount !== undefined;
   const hasCategoryName = headerMap.categoryName !== undefined;
@@ -1072,17 +1516,36 @@ function parseCsvRows(content) {
   return rows.filter((line) => line.some((value) => value.trim() !== ""));
 }
 
-function serializeTransactionsToCsv(items) {
-  const headers = ["id", "date", "categoryId", "categoryName", "type", "amount", "note", "createdAt"];
+function serializeBackupToCsv(categoryList, transactionList) {
+  const headers = ["recordType", "id", "name", "type", "date", "categoryId", "categoryName", "amount", "note", "createdAt"];
   const lines = [headers.join(",")];
 
-  for (const item of items) {
+  for (const category of categoryList) {
     const row = [
+      "category",
+      category.id,
+      category.name,
+      category.type,
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ].map(toCsvCell);
+
+    lines.push(row.join(","));
+  }
+
+  for (const item of transactionList) {
+    const row = [
+      "transaction",
       item.id,
+      "",
+      item.type,
       item.date,
       item.categoryId,
       item.categoryName,
-      item.type,
       item.amount,
       item.note || "",
       item.createdAt,
@@ -1105,7 +1568,12 @@ function toCsvCell(value) {
 function mapCsvHeader(header) {
   const normalized = normalizeLookupText(header);
   const map = {
+    recordtype: "recordType",
+    loaibanghi: "recordType",
+    kieu: "recordType",
     id: "id",
+    name: "name",
+    ten: "name",
     date: "date",
     ngay: "date",
     categoryid: "categoryId",
@@ -1124,6 +1592,17 @@ function mapCsvHeader(header) {
   };
 
   return map[normalized] || null;
+}
+
+function normalizeCsvRecordType(value) {
+  const normalized = normalizeLookupText(value);
+  if (normalized === "category" || normalized === "danhmuc") {
+    return "category";
+  }
+  if (normalized === "transaction" || normalized === "giaodich") {
+    return "transaction";
+  }
+  return "";
 }
 
 function getCsvCell(row, index) {
@@ -1395,6 +1874,25 @@ function formatMonthText(monthValue) {
 
   const [year, month] = monthValue.split("-");
   return `${month}/${year}`;
+}
+
+function formatAxisCurrency(value) {
+  const absolute = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+
+  if (absolute >= 1000000000) {
+    return `${sign}${(absolute / 1000000000).toFixed(1).replace(".0", "")} tỷ`;
+  }
+
+  if (absolute >= 1000000) {
+    return `${sign}${(absolute / 1000000).toFixed(1).replace(".0", "")}tr`;
+  }
+
+  if (absolute >= 1000) {
+    return `${sign}${(absolute / 1000).toFixed(0)}k`;
+  }
+
+  return `${sign}${absolute}`;
 }
 
 function formatDate(value) {

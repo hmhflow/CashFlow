@@ -9,218 +9,276 @@
   <script src="app.js" defer></script>
 </head>
 <body>
+  <div class="sky-scene" aria-hidden="true">
+    <div class="cloud cloud-1"></div>
+    <div class="cloud cloud-2"></div>
+    <div class="cloud cloud-3"></div>
+    <div class="cloud cloud-4"></div>
+
+    <div class="bird bird-1">
+      <span></span>
+      <span></span>
+    </div>
+    <div class="bird bird-2">
+      <span></span>
+      <span></span>
+    </div>
+  </div>
+
   <main class="app">
     <header class="hero">
       <div>
         <p class="eyebrow">PERSONAL CASH FLOW</p>
         <h1>Quản lý chi tiêu cá nhân</h1>
-        <p>Theo dõi thu chi rõ ràng, quản lý danh mục linh hoạt và xem thống kê theo tháng hoặc khoảng thời gian.</p>
+        <p>Tách rõ từng khu vực để quản lý thuận tiện: tổng quan, giao dịch & danh mục, sao lưu & khôi phục.</p>
       </div>
-      <div id="active-range-label" class="range-pill">Đang xem: Tháng này</div>
+      <div id="active-range-label" class="range-pill">Trang tổng quan</div>
     </header>
 
-    <section class="top-grid">
-      <article class="card collapsible-card">
-        <details id="transaction-panel" open>
-          <summary class="collapse-summary">
-            <span>Thêm giao dịch</span>
-            <span class="summary-hint">Thu gọn/Mở rộng</span>
-          </summary>
+    <nav class="card page-menu" aria-label="Điều hướng">
+      <button class="menu-btn is-active" type="button" data-view-target="overview">
+        <span class="menu-title">Trang tổng quan</span>
+        <span class="menu-desc">Bộ lọc, thông số, biểu đồ, lịch sử giao dịch</span>
+      </button>
+      <button class="menu-btn" type="button" data-view-target="manage">
+        <span class="menu-title">Giao dịch & danh mục</span>
+        <span class="menu-desc">Thêm giao dịch, quản lý danh mục thu/chi</span>
+      </button>
+      <button class="menu-btn" type="button" data-view-target="backup">
+        <span class="menu-title">Sao lưu & khôi phục</span>
+        <span class="menu-desc">Xuất/nhập dữ liệu JSON hoặc CSV</span>
+      </button>
+    </nav>
 
-          <div class="collapse-body">
-            <form id="transaction-form" class="form-grid">
-              <label>
-                Danh mục
-                <select id="category" required></select>
-              </label>
+    <section class="app-view" data-view="overview">
+      <section class="card">
+        <div class="filter-header">
+          <h2>Bộ lọc thời gian & tìm kiếm</h2>
+          <button id="reset-filter" class="ghost" type="button">Đặt lại</button>
+        </div>
 
-              <label>
-                Số tiền (VND)
-                <input id="amount" type="number" min="1000" step="1000" placeholder="Ví dụ: 200000" required />
-              </label>
+        <div class="filter-basic-row">
+          <label>
+            Chế độ xem thời gian
+            <select id="filter-mode">
+              <option value="this-month">Tháng này</option>
+              <option value="last-month">Tháng trước</option>
+              <option value="month">Theo tháng cụ thể</option>
+              <option value="custom">Khoảng thời gian tùy chọn</option>
+              <option value="all">Toàn bộ thời gian</option>
+            </select>
+          </label>
 
-              <label>
-                Ngày
-                <input id="date" type="date" required />
-              </label>
+          <button id="toggle-advanced-filter" class="ghost" type="button" aria-expanded="false">Mở lọc nâng cao</button>
+        </div>
 
-              <label>
-                Ghi chú
-                <input id="note" type="text" maxlength="100" placeholder="Nội dung ngắn gọn" />
-              </label>
+        <div id="advanced-filter-panel" class="filter-advanced hidden">
+          <div class="filter-grid">
+            <label id="month-filter-wrap" class="filter-field">
+              Tháng
+              <input id="filter-month" type="month" />
+            </label>
 
-              <button id="submit-transaction" type="submit">Lưu giao dịch</button>
-            </form>
-            <p id="category-type-hint" class="hint"></p>
+            <label id="from-date-wrap" class="filter-field">
+              Từ ngày
+              <input id="from-date" type="date" />
+            </label>
+
+            <label id="to-date-wrap" class="filter-field">
+              Đến ngày
+              <input id="to-date" type="date" />
+            </label>
+
+            <label>
+              Loại giao dịch
+              <select id="filter-type">
+                <option value="all">Tất cả</option>
+                <option value="income">Thu nhập</option>
+                <option value="expense">Chi tiêu</option>
+              </select>
+            </label>
+
+            <label>
+              Danh mục
+              <select id="filter-category">
+                <option value="all">Tất cả danh mục</option>
+              </select>
+            </label>
+
+            <label>
+              Số tiền từ (VND)
+              <input id="min-amount" type="number" min="0" step="1000" placeholder="Ví dụ: 100000" />
+            </label>
+
+            <label>
+              Số tiền đến (VND)
+              <input id="max-amount" type="number" min="0" step="1000" placeholder="Ví dụ: 1000000" />
+            </label>
+
+            <label class="filter-wide">
+              Từ khóa ghi chú
+              <input id="keyword-filter" type="text" maxlength="80" placeholder="Ví dụ: cafe, khách hàng, thưởng..." />
+            </label>
           </div>
-        </details>
-      </article>
+        </div>
+      </section>
 
-      <article class="card collapsible-card">
-        <details id="category-panel" open>
-          <summary class="collapse-summary">
-            <span>Danh mục giao dịch</span>
-            <span class="summary-hint">Thu gọn/Mở rộng</span>
-          </summary>
+      <section class="summary-grid">
+        <article class="card summary">
+          <h3>Số dư trong bộ lọc</h3>
+          <p id="balance">0 ₫</p>
+        </article>
 
-          <div class="collapse-body">
-            <form id="category-form" class="category-form">
-              <label>
-                Tên danh mục
-                <input id="new-category-name" type="text" maxlength="40" placeholder="Ví dụ: Thưởng dự án" required />
-              </label>
+        <article class="card summary income">
+          <h3>Tổng thu trong bộ lọc</h3>
+          <p id="total-income">0 ₫</p>
+        </article>
 
-              <label>
-                Loại
-                <select id="new-category-type" required>
-                  <option value="expense">Chi tiêu</option>
-                  <option value="income">Thu nhập</option>
-                </select>
-              </label>
+        <article class="card summary expense">
+          <h3>Tổng chi trong bộ lọc</h3>
+          <p id="total-expense">0 ₫</p>
+        </article>
 
-              <button type="submit">Thêm danh mục</button>
-            </form>
+        <article class="card summary neutral">
+          <h3>Số giao dịch trong bộ lọc</h3>
+          <p id="total-transactions">0</p>
+        </article>
+      </section>
 
-            <div id="category-list" class="category-list"></div>
-            <p class="hint">Không thể xóa danh mục đã có giao dịch để giữ toàn vẹn dữ liệu lịch sử.</p>
+      <section class="charts-grid">
+        <article class="card chart-card">
+          <div class="chart-header">
+            <h2>Cơ cấu chi tiêu theo danh mục</h2>
+            <p>Hiển thị tỉ trọng các khoản chi trong bộ lọc hiện tại.</p>
           </div>
-        </details>
-      </article>
+          <div class="chart-frame chart-frame-doughnut">
+            <canvas id="expense-category-chart" aria-label="Biểu đồ cơ cấu chi tiêu"></canvas>
+          </div>
+        </article>
+
+        <article class="card chart-card">
+          <div class="chart-header">
+            <h2>Tổng quan thu - chi trong bộ lọc</h2>
+            <p>So sánh nhanh giữa tổng thu nhập và tổng chi tiêu.</p>
+          </div>
+          <div class="chart-frame chart-frame-bar">
+            <canvas id="cashflow-chart" aria-label="Biểu đồ thu chi"></canvas>
+          </div>
+        </article>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <h2>Lịch sử giao dịch theo bộ lọc</h2>
+          <button id="clear-all" class="danger" type="button">Xóa toàn bộ dữ liệu</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Ngày</th>
+                <th>Danh mục</th>
+                <th>Loại</th>
+                <th>Ghi chú</th>
+                <th>Số tiền</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="transaction-list"></tbody>
+          </table>
+        </div>
+      </section>
     </section>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>Bộ lọc thời gian & tìm kiếm nâng cao</h2>
-        <button id="reset-filter" class="ghost" type="button">Đặt lại</button>
-      </div>
+    <section class="app-view hidden" data-view="manage">
+      <section class="top-grid">
+        <article class="card collapsible-card">
+          <details id="transaction-panel" open>
+            <summary class="collapse-summary">
+              <span>Thêm giao dịch</span>
+              <span class="summary-hint">Thu gọn/Mở rộng</span>
+            </summary>
 
-      <div class="filter-grid">
-        <label>
-          Chế độ xem thời gian
-          <select id="filter-mode">
-            <option value="this-month">Tháng này</option>
-            <option value="last-month">Tháng trước</option>
-            <option value="month">Theo tháng cụ thể</option>
-            <option value="custom">Khoảng thời gian tùy chọn</option>
-            <option value="all">Toàn bộ thời gian</option>
-          </select>
-        </label>
+            <div class="collapse-body">
+              <form id="transaction-form" class="form-grid">
+                <label>
+                  Danh mục
+                  <select id="category" required></select>
+                </label>
 
-        <label id="month-filter-wrap" class="filter-field">
-          Tháng
-          <input id="filter-month" type="month" />
-        </label>
+                <label>
+                  Số tiền (VND)
+                  <input id="amount" type="text" inputmode="numeric" autocomplete="off" placeholder="Ví dụ: 200.000" required />
+                </label>
 
-        <label id="from-date-wrap" class="filter-field">
-          Từ ngày
-          <input id="from-date" type="date" />
-        </label>
+                <label>
+                  Ngày
+                  <input id="date" type="date" required />
+                </label>
 
-        <label id="to-date-wrap" class="filter-field">
-          Đến ngày
-          <input id="to-date" type="date" />
-        </label>
+                <label>
+                  Ghi chú
+                  <input id="note" type="text" maxlength="100" placeholder="Nội dung ngắn gọn" />
+                </label>
 
-        <label>
-          Loại giao dịch
-          <select id="filter-type">
-            <option value="all">Tất cả</option>
-            <option value="income">Thu nhập</option>
-            <option value="expense">Chi tiêu</option>
-          </select>
-        </label>
+                <div class="form-actions">
+                  <button id="submit-transaction" type="submit">Lưu giao dịch</button>
+                  <button id="cancel-edit-transaction" class="ghost hidden" type="button">Hủy chỉnh sửa</button>
+                </div>
+              </form>
+              <p id="editing-transaction-hint" class="hint editing-hint hidden"></p>
+              <p id="category-type-hint" class="hint"></p>
+            </div>
+          </details>
+        </article>
 
-        <label>
-          Danh mục
-          <select id="filter-category">
-            <option value="all">Tất cả danh mục</option>
-          </select>
-        </label>
+        <article class="card collapsible-card">
+          <details id="category-panel" open>
+            <summary class="collapse-summary">
+              <span>Danh mục giao dịch</span>
+              <span class="summary-hint">Thu gọn/Mở rộng</span>
+            </summary>
 
-        <label>
-          Số tiền từ (VND)
-          <input id="min-amount" type="number" min="0" step="1000" placeholder="Ví dụ: 100000" />
-        </label>
+            <div class="collapse-body">
+              <form id="category-form" class="category-form">
+                <label>
+                  Tên danh mục
+                  <input id="new-category-name" type="text" maxlength="40" placeholder="Ví dụ: Thưởng dự án" required />
+                </label>
 
-        <label>
-          Số tiền đến (VND)
-          <input id="max-amount" type="number" min="0" step="1000" placeholder="Ví dụ: 1000000" />
-        </label>
+                <label>
+                  Loại
+                  <select id="new-category-type" required>
+                    <option value="expense">Chi tiêu</option>
+                    <option value="income">Thu nhập</option>
+                  </select>
+                </label>
 
-        <label class="filter-wide">
-          Từ khóa ghi chú
-          <input id="keyword-filter" type="text" maxlength="80" placeholder="Ví dụ: cafe, khách hàng, thưởng..." />
-        </label>
-      </div>
+                <button type="submit">Thêm danh mục</button>
+              </form>
+
+              <div id="category-list" class="category-list"></div>
+              <p class="hint">Không thể xóa danh mục đã có giao dịch để giữ toàn vẹn dữ liệu lịch sử.</p>
+            </div>
+          </details>
+        </article>
+      </section>
     </section>
 
-    <section class="card">
-      <h2>Sao lưu & khôi phục dữ liệu</h2>
-      <div class="backup-actions">
-        <button id="export-json" type="button">Xuất JSON</button>
-        <button id="export-csv" class="ghost" type="button">Xuất CSV</button>
-        <button id="import-trigger" class="ghost" type="button">Nhập từ file</button>
-        <input id="import-file" type="file" accept=".json,.csv,application/json,text/csv" hidden />
-      </div>
-      <p class="hint">JSON giữ cả danh mục + giao dịch. CSV thuận tiện mở bằng Excel/Google Sheets.</p>
+    <section class="app-view hidden" data-view="backup">
+      <section class="card">
+        <h2>Sao lưu & khôi phục dữ liệu</h2>
+        <div class="backup-actions">
+          <button id="export-json" type="button">Xuất JSON</button>
+          <button id="export-csv" class="ghost" type="button">Xuất CSV</button>
+          <button id="import-trigger" class="ghost" type="button">Nhập từ file</button>
+          <input id="import-file" type="file" accept=".json,.csv,application/json,text/csv" hidden />
+        </div>
+        <p class="hint">Cả JSON và CSV đều chứa danh mục + giao dịch để backup/khôi phục đầy đủ.</p>
+      </section>
     </section>
 
-    <section class="summary-grid">
-      <article class="card summary">
-        <h3>Số dư trong bộ lọc</h3>
-        <p id="balance">0 ₫</p>
-      </article>
-
-      <article class="card summary income">
-        <h3>Tổng thu trong bộ lọc</h3>
-        <p id="total-income">0 ₫</p>
-      </article>
-
-      <article class="card summary expense">
-        <h3>Tổng chi trong bộ lọc</h3>
-        <p id="total-expense">0 ₫</p>
-      </article>
-
-      <article class="card summary neutral">
-        <h3>Số giao dịch trong bộ lọc</h3>
-        <p id="total-transactions">0</p>
-      </article>
-    </section>
-
-    <section class="charts-grid">
-      <article class="card chart-card">
-        <h2>Cơ cấu chi tiêu theo danh mục</h2>
-        <canvas id="expense-category-chart" aria-label="Biểu đồ cơ cấu chi tiêu"></canvas>
-      </article>
-
-      <article class="card chart-card">
-        <h2>Tổng quan thu - chi trong bộ lọc</h2>
-        <canvas id="cashflow-chart" aria-label="Biểu đồ thu chi"></canvas>
-      </article>
-    </section>
-
-    <section class="card">
-      <div class="section-head">
-        <h2>Lịch sử giao dịch theo bộ lọc</h2>
-        <button id="clear-all" class="danger" type="button">Xóa toàn bộ dữ liệu</button>
-      </div>
-
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Ngày</th>
-              <th>Danh mục</th>
-              <th>Loại</th>
-              <th>Ghi chú</th>
-              <th>Số tiền</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="transaction-list"></tbody>
-        </table>
-      </div>
-    </section>
   </main>
 </body>
 </html>
